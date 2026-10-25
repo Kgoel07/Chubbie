@@ -140,4 +140,3 @@ and never guilt-trips students for leaving.
 - [Discord Developer Portal setup](docs/DISCORD_SETUP.md)
 - [Judge demo script](docs/DEMO_SCRIPT.md)
 - [Known limitations and live-test status](docs/LIMITATIONS.md)
-
