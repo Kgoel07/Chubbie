@@ -35,6 +35,15 @@ class PollRecord:
     message_id: int | None
 
 
+@dataclass(frozen=True)
+class ChannelConfig:
+    enabled: bool = False
+    ambient_enabled: bool = False
+    entrance_sent: bool = False
+    welcome_until: datetime | None = None
+    demo_expires_at: datetime | None = None
+
+
 class ChubbieRepository:
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path)
@@ -101,10 +110,38 @@ class ChubbieRepository:
                     voted_at TEXT NOT NULL,
                     PRIMARY KEY (poll_id, user_key)
                 );
+                CREATE TABLE IF NOT EXISTS channel_config (
+                    guild_id INTEGER NOT NULL,
+                    channel_id INTEGER NOT NULL,
+                    enabled INTEGER NOT NULL DEFAULT 0,
+                    ambient_enabled INTEGER NOT NULL DEFAULT 0,
+                    entrance_sent INTEGER NOT NULL DEFAULT 0,
+                    welcome_until TEXT,
+                    demo_expires_at TEXT,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (guild_id, channel_id)
+                );
+                CREATE TABLE IF NOT EXISTS mention_preferences (
+                    guild_id INTEGER NOT NULL,
+                    channel_id INTEGER NOT NULL,
+                    user_id TEXT NOT NULL,
+                    enabled INTEGER NOT NULL DEFAULT 0,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (guild_id, channel_id, user_id)
+                );
                 CREATE INDEX IF NOT EXISTS polls_channel_open
                     ON polls(guild_id, channel_id, closed_at);
                 """
             )
+            columns = {row["name"] for row in db.execute("PRAGMA table_info(channel_config)").fetchall()}
+            migrations = {
+                "entrance_sent": "ALTER TABLE channel_config ADD COLUMN entrance_sent INTEGER NOT NULL DEFAULT 0",
+                "welcome_until": "ALTER TABLE channel_config ADD COLUMN welcome_until TEXT",
+                "demo_expires_at": "ALTER TABLE channel_config ADD COLUMN demo_expires_at TEXT",
+            }
+            for column, statement in migrations.items():
+                if column not in columns:
+                    db.execute(statement)
 
     def get_creature(self, guild_id: int, channel_id: int) -> CreatureState | None:
         with self.connection() as db:
@@ -129,8 +166,132 @@ class ChubbieRepository:
             db.execute("DELETE FROM polls WHERE guild_id=? AND channel_id=?", (guild_id, channel_id))
             db.execute("DELETE FROM cooldowns WHERE guild_id=? AND channel_id=?", (guild_id, channel_id))
             db.execute("DELETE FROM participants WHERE guild_id=? AND channel_id=?", (guild_id, channel_id))
+            db.execute("DELETE FROM channel_config WHERE guild_id=? AND channel_id=?", (guild_id, channel_id))
+            db.execute("DELETE FROM mention_preferences WHERE guild_id=? AND channel_id=?", (guild_id, channel_id))
             result = db.execute("DELETE FROM creatures WHERE guild_id=? AND channel_id=?", (guild_id, channel_id))
             return result.rowcount > 0
+
+    def get_channel_config(self, guild_id: int, channel_id: int) -> ChannelConfig:
+        with self.connection() as db:
+            row = db.execute(
+                """SELECT enabled, ambient_enabled, entrance_sent, welcome_until, demo_expires_at
+                   FROM channel_config WHERE guild_id=? AND channel_id=?""",
+                (guild_id, channel_id),
+            ).fetchone()
+        return (
+            ChannelConfig(
+                bool(row["enabled"]),
+                bool(row["ambient_enabled"]),
+                bool(row["entrance_sent"]),
+                _dt(row["welcome_until"]),
+                _dt(row["demo_expires_at"]),
+            )
+            if row
+            else ChannelConfig()
+        )
+
+    def set_channel_enabled(self, guild_id: int, channel_id: int, enabled: bool) -> ChannelConfig:
+        current = self.get_channel_config(guild_id, channel_id)
+        ambient = current.ambient_enabled if enabled else False
+        self._upsert_channel_config(guild_id, channel_id, enabled, ambient)
+        if not enabled:
+            self.stop_demo(guild_id, channel_id)
+        updated = self.get_channel_config(guild_id, channel_id)
+        return ChannelConfig(enabled, ambient, updated.entrance_sent, updated.welcome_until, updated.demo_expires_at)
+
+    def set_channel_ambient(self, guild_id: int, channel_id: int, enabled: bool) -> ChannelConfig:
+        current = self.get_channel_config(guild_id, channel_id)
+        if enabled and not current.enabled:
+            raise ValueError("Enable Chubbie in this channel first with /enable.")
+        self._upsert_channel_config(guild_id, channel_id, current.enabled, enabled)
+        updated = self.get_channel_config(guild_id, channel_id)
+        return ChannelConfig(current.enabled, enabled, updated.entrance_sent, updated.welcome_until, updated.demo_expires_at)
+
+    def _upsert_channel_config(
+        self, guild_id: int, channel_id: int, enabled: bool, ambient_enabled: bool
+    ) -> None:
+        with self.connection() as db:
+            db.execute(
+                """INSERT INTO channel_config(guild_id,channel_id,enabled,ambient_enabled,updated_at)
+                   VALUES(?,?,?,?,?) ON CONFLICT(guild_id,channel_id) DO UPDATE SET
+                   enabled=excluded.enabled, ambient_enabled=excluded.ambient_enabled,
+                   updated_at=excluded.updated_at""",
+                (guild_id, channel_id, int(enabled), int(ambient_enabled), _iso(datetime.now(timezone.utc))),
+            )
+
+    def claim_entrance(self, guild_id: int, channel_id: int, welcome_until: datetime) -> bool:
+        with self.connection() as db:
+            result = db.execute(
+                """UPDATE channel_config SET entrance_sent=1, welcome_until=?, updated_at=?
+                   WHERE guild_id=? AND channel_id=? AND enabled=1 AND entrance_sent=0""",
+                (_iso(welcome_until), _iso(datetime.now(timezone.utc)), guild_id, channel_id),
+            )
+            return result.rowcount == 1
+
+    def release_entrance(self, guild_id: int, channel_id: int) -> None:
+        with self.connection() as db:
+            db.execute(
+                """UPDATE channel_config SET entrance_sent=0, welcome_until=NULL, updated_at=?
+                   WHERE guild_id=? AND channel_id=?""",
+                (_iso(datetime.now(timezone.utc)), guild_id, channel_id),
+            )
+
+    def start_demo(self, guild_id: int, channel_id: int, expires_at: datetime) -> ChannelConfig:
+        current = self.get_channel_config(guild_id, channel_id)
+        if not current.enabled:
+            raise ValueError("Enable Chubbie in this channel first with /chubbie enable.")
+        if not current.ambient_enabled:
+            raise ValueError("Enable ambient mode first with /chubbie ambient on.")
+        with self.connection() as db:
+            db.execute(
+                "UPDATE channel_config SET demo_expires_at=?, updated_at=? WHERE guild_id=? AND channel_id=?",
+                (_iso(expires_at), _iso(datetime.now(timezone.utc)), guild_id, channel_id),
+            )
+        return self.get_channel_config(guild_id, channel_id)
+
+    def stop_demo(self, guild_id: int, channel_id: int) -> ChannelConfig:
+        with self.connection() as db:
+            db.execute(
+                "UPDATE channel_config SET demo_expires_at=NULL, updated_at=? WHERE guild_id=? AND channel_id=?",
+                (_iso(datetime.now(timezone.utc)), guild_id, channel_id),
+            )
+        return self.get_channel_config(guild_id, channel_id)
+
+    def list_active_demos(self, now: datetime | None = None) -> list[tuple[int, int, datetime]]:
+        now = now or datetime.now(timezone.utc)
+        with self.connection() as db:
+            db.execute(
+                "UPDATE channel_config SET demo_expires_at=NULL WHERE demo_expires_at IS NOT NULL AND demo_expires_at<=?",
+                (_iso(now),),
+            )
+            rows = db.execute(
+                """SELECT guild_id, channel_id, demo_expires_at FROM channel_config
+                   WHERE enabled=1 AND demo_expires_at>?""",
+                (_iso(now),),
+            ).fetchall()
+        return [
+            (int(row["guild_id"]), int(row["channel_id"]), _dt(row["demo_expires_at"]))
+            for row in rows
+        ]
+
+    def set_mention_preference(
+        self, guild_id: int, channel_id: int, user_id: str, enabled: bool
+    ) -> None:
+        with self.connection() as db:
+            db.execute(
+                """INSERT INTO mention_preferences(guild_id,channel_id,user_id,enabled,updated_at)
+                   VALUES(?,?,?,?,?) ON CONFLICT(guild_id,channel_id,user_id) DO UPDATE SET
+                   enabled=excluded.enabled, updated_at=excluded.updated_at""",
+                (guild_id, channel_id, user_id, int(enabled), _iso(datetime.now(timezone.utc))),
+            )
+
+    def get_mentionable_users(self, guild_id: int, channel_id: int) -> frozenset[str]:
+        with self.connection() as db:
+            rows = db.execute(
+                "SELECT user_id FROM mention_preferences WHERE guild_id=? AND channel_id=? AND enabled=1",
+                (guild_id, channel_id),
+            ).fetchall()
+        return frozenset(str(row["user_id"]) for row in rows)
 
     def register_participant(self, guild_id: int, channel_id: int, user_key: str, now: datetime) -> int:
         with self.connection() as db:

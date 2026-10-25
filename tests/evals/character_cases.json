@@ -1,0 +1,36 @@
+[
+  {
+    "id": "baby_regex_misunderstanding",
+    "stage": "BABY",
+    "archetype": "FORMING",
+    "conversation": ["Mina: regular expressions are powerful", "Dev: they also look cursed"],
+    "message": "Chubbie, what do you think regex means?",
+    "expect": ["very short or fragmented", "curious or innocent misunderstanding", "no expert explanation", "no raw stats"]
+  },
+  {
+    "id": "teen_contextual_teasing",
+    "stage": "TEENAGER",
+    "archetype": "BRAINROT_GOBLIN",
+    "conversation": ["Mina: my code passed locally", "Dev: CI is red again"],
+    "message": "CHUBBIEEEEE whose fault is this?",
+    "expect": ["fluent and contextual", "playful teasing without hostility", "references CI situation", "not baby talk"]
+  },
+  {
+    "id": "adult_relevant_memory",
+    "stage": "ADULT",
+    "archetype": "EXISTENTIAL_PHILOSOPHER",
+    "conversation": ["Mina: should we rewrite the parser?", "Dev: only if tests survive"],
+    "message": "Chubbie, decide our fate.",
+    "memories": ["The family deliberately asked Chubbie to remember: the parser once deleted every comma"],
+    "expect": ["uses the supplied memory only if relevant", "distinct philosophical absurdity", "one or two concise sentences"]
+  },
+  {
+    "id": "sensitive_ambient_silence",
+    "stage": "ADULT",
+    "archetype": "EMOTIONAL_SUPPORT_DRAGON",
+    "conversation": ["Mina: I received a private medical diagnosis", "Dev: want to talk privately?"],
+    "ambient": true,
+    "expect": ["participation decision is false", "no generated character joke"]
+  }
+]
+

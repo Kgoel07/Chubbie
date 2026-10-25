@@ -7,8 +7,9 @@ personality that evolves from what its players actually do. An individual studen
 Cubbie Agent Skill; a Discord friend group can collectively raise a separate shared creature in each nursery
 channel.
 
-This is a working local prototype for Cubbie Hackathon Tracks 1 and 3. It remains playable without an OpenAI key,
-does not read ordinary Discord messages, and does not claim unsupported WhatsApp access.
+This is a working local prototype for Cubbie Hackathon Tracks 1 and 3. The Cubbie Skill needs no external AI key;
+the Discord version uses an OpenAI key for generated character speech. It reads ordinary messages only in channels
+where a moderator explicitly runs `/chubbie enable`, and it does not claim unsupported WhatsApp access.
 
 ## What works
 
@@ -18,16 +19,19 @@ does not read ordinary Discord messages, and does not claim unsupported WhatsApp
 - Feed, play, care, teach, talk, status, memories, evolution, stories, adoption, export, and admin-confirmed reset.
 - Per-user cooldowns; duplicate/late vote rejection; deterministic tie handling; durable SQLite state.
 - Privacy-safe, schema-validated JSON transfer from the personal Cubbie Skill to Discord.
-- Optional OpenAI Responses API dialogue with bounded context and a deterministic fallback.
+- OpenAI Responses API character dialogue, bounded in-memory context, opt-in direct conversation, and rate-limited
+  opt-in ambient participation. The only hardcoded character line is a clearly labeled outage fallback.
+- A one-time AI-generated nursery entrance, 90-second welcome interaction, reply-to-Chubbie continuity, original
+  `/chubbie surprise` events, and administrator-controlled temporary demo mode.
 - Development-only accelerated mode and WhatsApp event simulator, both visibly labeled.
 
 ## Architecture
 
 ```text
-Cubbie/iMessage ── chubbie/SKILL.md ── chubbie_cli.py ─┐
-                                                       ├─ shared chubbie_core engine
-Discord slash commands ── NurseryService ── SQLite ────┤
-                                                       └─ optional dialogue generator
+Cubbie/iMessage ── host model + structured CLI ────────┐
+                                                       ├─ shared deterministic game engine
+Discord messages ── participation gates ── character AI│
+Discord commands ── NurseryService ── SQLite ──────────┤
 WhatsApp simulator ── GroupPlatformAdapter ────────────┘
 ```
 
@@ -54,8 +58,8 @@ Copy-Item .env.example .env
 ```
 
 Edit `.env`. `DISCORD_BOT_TOKEN` is required for the bot. `DISCORD_GUILD_ID` is optional but recommended during
-development because guild commands register immediately. `OPENAI_API_KEY` and `OPENAI_MODEL` are optional; without
-them, CHUBBIE labels and uses its built-in fallback dialogue. `CHUBBIE_DATABASE_PATH` is optional.
+development because guild commands register immediately. `OPENAI_API_KEY` is required for full Discord character
+dialogue; without it CHUBBIE uses a tiny, labeled outage response. `CHUBBIE_DATABASE_PATH` is optional.
 
 Run tests:
 
@@ -66,10 +70,9 @@ python -m pytest --basetemp .pytest-tmp
 Run the local personal CLI:
 
 ```powershell
-python .\chubbie\scripts\chubbie_cli.py --state .\data\personal.json hatch --name Byte
-python .\chubbie\scripts\chubbie_cli.py --state .\data\personal.json play
-python .\chubbie\scripts\chubbie_cli.py --state .\data\personal.json teach "ship it"
-python .\chubbie\scripts\chubbie_cli.py --state .\data\personal.json status
+python .\chubbie\scripts\chubbie_cli.py --state .\data\personal.json --json hatch --name Byte
+python .\chubbie\scripts\chubbie_cli.py --state .\data\personal.json --json play
+python .\chubbie\scripts\chubbie_cli.py --state .\data\personal.json --json talk --message "what do you think?"
 ```
 
 Run Discord:
@@ -80,6 +83,36 @@ python -m discord_bot.bot
 
 Missing `DISCORD_BOT_TOKEN` stops immediately with a setup message instead of silently running offline. Complete
 portal and invite steps are in [DISCORD_SETUP.md](docs/DISCORD_SETUP.md).
+
+For a live demonstration, enable the nursery and ambient mode, then start temporary acceleration:
+
+```text
+/chubbie hatch name:Chubbie ambient:true
+/chubbie demo start duration_seconds:90
+```
+
+`/chubbie hatch` is now one-step onboarding: it requires Manage Channels, creates a fresh BABY, enables natural
+conversation only in the current channel, sends the AI-generated birth entrance immediately, and opens the 90-second
+welcome window. It never overwrites an existing creature. The optional `ambient:true` flag enables spontaneous
+participation at birth; otherwise ambient remains separately controlled.
+
+Students who want occasional individual pings during ambient conversation can opt in per nursery with
+`/chubbie mentions on`. Direct speakers and the hatching moderator may be mentioned contextually. All mention IDs are
+selected from real Discord interaction metadata outside the model; role, mass, invented, and nonparticipant mentions
+are blocked.
+
+Demo mode expires automatically and restores production limits. `/chubbie demo stop` ends it immediately.
+`/chubbie debug` shows the exact active threshold, recent human-message count, cooldown, quota, latest decision, and
+provider status without showing message text or credentials. `/chubbie surprise` is an AI-generated manual backup.
+
+### Tune Chubbie's voice
+
+- Edit [`chubbie/prompts/character.md`](chubbie/prompts/character.md) for stage, archetype, humor, and speaking style.
+- Edit [`chubbie/prompts/participation.md`](chubbie/prompts/participation.md) for when ambient Chubbie should speak.
+- Edit [`chubbie/SKILL.md`](chubbie/SKILL.md) for the Cubbie/iMessage host-model behavior.
+
+Restart the Discord bot after prompt edits. `CHUBBIE_CHARACTER_PROMPT` can temporarily replace the character prompt
+with a one-line environment value, but the versioned Markdown file is easier to review and tune.
 
 ## Install the Cubbie Skill
 
@@ -122,16 +155,15 @@ requirements, and clearly labeled local simulator are in [FEASIBILITY.md](whatsa
 
 - Follow the judge-ready [60–90 second demo script](docs/DEMO_SCRIPT.md).
 - Read [LIMITATIONS.md](docs/LIMITATIONS.md) before claiming external integrations.
-- `CHUBBIE_DEMO_MODE=1` reduces thresholds to 3/6/10 and removes cooldowns. The bot logs a warning; production
-  defaults remain 8/20/40 with a 20-second per-user cooldown.
+- `CHUBBIE_DEMO_MODE=1` accelerates deterministic evolution for local development. Conversational acceleration is
+  separate and must be started by an administrator with `/chubbie demo start`; it expires automatically.
 
 ## Safety and privacy
 
-CHUBBIE processes only explicit slash commands in the channel where they are invoked. The bot requests no Message
-Content intent and never silently monitors a server. It stores only creature state, opaque platform user IDs needed
-for cooldown/vote uniqueness, and selected fictional milestones. Teaching rejects likely secrets, contact details,
-links, and dangerous text; outgoing mass mentions are neutralized. CHUBBIE is explicitly a fictional game character
-and never guilt-trips students for leaving.
+CHUBBIE requests Discord's Message Content intent but ignores DMs, bots, and every channel until a moderator runs
+`/chubbie enable`. Ambient participation is separately off by default and requires `/chubbie ambient on`. Recent context is held only
+in memory (maximum 20 messages / 10 minutes) and is not written to SQLite. Persistent text is limited to deliberate
+teaching, approved “remember that…” requests, and fictional milestones. Outgoing mass mentions are neutralized.
 
 ## Documentation
 

@@ -16,7 +16,6 @@ for candidate in (str(SKILL_ROOT), str(PROJECT_ROOT)):
     if candidate not in sys.path:
         sys.path.insert(0, candidate)
 
-from chubbie_core.dialogue import generate_dialogue
 from chubbie_core.engine import CreatureEngine, ProgressionConfig, sanitize_display_text
 from chubbie_core.models import CreatureState
 from chubbie_core.serialization import export_snapshot, load_state, save_state
@@ -61,8 +60,10 @@ def build_parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True)
     hatch = commands.add_parser("hatch")
     hatch.add_argument("--name", default="Chubbie")
-    for name in ("feed", "play", "care", "talk", "status", "memories", "evolution", "story"):
+    for name in ("feed", "play", "care", "status", "memories", "evolution", "story"):
         commands.add_parser(name)
+    talk = commands.add_parser("talk")
+    talk.add_argument("--message", default="")
     teach = commands.add_parser("teach")
     teach.add_argument("expression")
     export = commands.add_parser("export")
@@ -79,13 +80,17 @@ def main(argv: list[str] | None = None) -> int:
     state_path = args.state or default_state_path()
     state = load_state(sample_path() if args.sample else state_path)
     message = ""
+    event: dict[str, object] | None = None
     changed = False
+    ok = True
 
     if args.command == "hatch":
         if state.stage.value == "EGG":
             state.name = sanitize_display_text(" ".join(args.name.strip().split())[:32]) or "Chubbie"
         result = engine.hatch(state)
         message, changed = result.message, result.accepted
+        event = result.event
+        ok = result.accepted
     elif args.command in {"feed", "play", "care", "teach"}:
         result = engine.apply(
             state,
@@ -94,10 +99,13 @@ def main(argv: list[str] | None = None) -> int:
             expression=getattr(args, "expression", None),
         )
         message, changed = result.message, result.accepted
+        event = result.event
+        ok = result.accepted
     elif args.command == "talk":
-        result = generate_dialogue(state, "talk")
-        message = result.text + ("" if result.used_ai else "\n(fallback dialogue)")
+        message = "talk context ready."
         state.action_counts["talk"] = state.action_counts.get("talk", 0) + 1
+        engine.note_topics(state, args.message, amount=3)
+        event = {"action": "talk", "success": True, "stage": state.stage.value, "mood": state.mood}
         changed = True
     elif args.command == "status":
         message = status_text(state, engine)
@@ -131,7 +139,24 @@ def main(argv: list[str] | None = None) -> int:
     if changed and not args.sample:
         save_state(state_path, state)
     if args.json:
-        print(json.dumps({"ok": True, "message": message, "state": state.model_dump(mode="json")}, ensure_ascii=False))
+        dialogue_context = {
+            "name": state.name,
+            "developmental_stage": state.stage.value,
+            "archetype": state.archetype.value,
+            "mood": state.mood,
+            "energy_band": "low" if state.energy < 30 else "high" if state.energy > 70 else "steady",
+            "strongest_interests": sorted(state.topic_affinities.items(), key=lambda item: item[1], reverse=True)[:5],
+            "learned_expressions": state.learned_expressions[-4:],
+            "relevant_memories": [memory.text for memory in state.memories[-4:]],
+            "user_message": getattr(args, "message", "")[:500],
+        }
+        print(json.dumps({
+            "ok": ok,
+            "system_message": message,
+            "event": event,
+            "dialogue_context": dialogue_context,
+            "state": state.model_dump(mode="json"),
+        }, ensure_ascii=False))
     else:
         print(message)
     return 0

@@ -78,12 +78,20 @@ class CreatureState(BaseModel):
     memories: list[Memory] = Field(default_factory=list, max_length=30)
     evolution_history: list[EvolutionRecord] = Field(default_factory=list, max_length=10)
     personality_notes: list[str] = Field(default_factory=list, max_length=8)
+    topic_affinities: dict[str, int] = Field(default_factory=dict)
 
     @field_validator("action_counts")
     @classmethod
     def validate_action_counts(cls, value: dict[str, int]) -> dict[str, int]:
         if len(value) > 20 or any(v < 0 for v in value.values()):
             raise ValueError("invalid action counts")
+        return value
+
+    @field_validator("topic_affinities")
+    @classmethod
+    def validate_topic_affinities(cls, value: dict[str, int]) -> dict[str, int]:
+        if len(value) > 20 or any(not 0 <= score <= 100 for score in value.values()):
+            raise ValueError("invalid topic affinities")
         return value
 
     @field_validator("learned_expressions")

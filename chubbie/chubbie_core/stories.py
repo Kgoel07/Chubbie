@@ -22,7 +22,7 @@ STORIES = {
         StoryPrompt("Ridiculous Hobby", "Chubbie needs a harmless new hobby before it reorganizes the ceiling tiles.", ("Competitive spoon collecting", "Extreme origami", "Interpretive debugging")),
     ),
     Archetype.EMOTIONAL_SUPPORT_DRAGON: (
-        StoryPrompt("Family Challenge", "Chubbie wants the group to do one tiny nice thing today.", ("Compliment a friend", "Share a campus event", "Hydration roll call")),
+        StoryPrompt("Family Challenge", "Chubbie wants the group to do one tiny nice thing today.", ("Compliment a friend", "Share a campus event", "Invent a family victory pose")),
         StoryPrompt("Club Application", "Chubbie can join one campus club as its extremely eager mascot.", ("Robotics club", "Volunteer club", "Board game club")),
     ),
     Archetype.EXISTENTIAL_PHILOSOPHER: (

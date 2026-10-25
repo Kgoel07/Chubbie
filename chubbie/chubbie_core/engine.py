@@ -44,6 +44,7 @@ class ActionResult:
     message: str
     state: CreatureState
     evolution: EvolutionRecord | None = None
+    event: dict[str, object] | None = None
 
 
 def clamp(value: int) -> int:
@@ -80,7 +81,12 @@ class CreatureEngine:
         state.last_interaction_at = now
         state.participant_count = max(1, state.participant_count)
         self._remember(state, "hatching", f"{state.name} hatched and immediately demanded snacks.", True, now)
-        return ActionResult(True, f"CRACK! {state.name} hatched with 80 energy and several opinions.", state)
+        return ActionResult(
+            True,
+            f"Hatched {state.name}.",
+            state,
+            event={"action": "hatch", "success": True, "stage": state.stage.value, "mood": state.mood},
+        )
 
     def apply(
         self,
@@ -103,6 +109,13 @@ class CreatureEngine:
             return ActionResult(False, f"Tiny creature, tiny cooldown. Try again in {max(1, seconds)}s.", state)
 
         state.participant_count = max(state.participant_count, participant_count or 1)
+        before = {
+            "energy": state.energy,
+            "affection": state.traits.affection,
+            "chaos": state.traits.chaos,
+            "curiosity": state.traits.curiosity,
+            "nerdiness": state.traits.nerdiness,
+        }
         if action == "teach":
             try:
                 clean = validate_expression(expression or "")
@@ -116,15 +129,16 @@ class CreatureEngine:
             if any(word in clean.casefold() for word in ("code", "python", "bug", "git", "algorithm")):
                 state.traits.nerdiness = clamp(state.traits.nerdiness + 8)
             state.mood = "Impressionable"
-            message = f'{state.name} learned "{clean}" and will deploy it irresponsibly.'
+            message = "teach accepted."
             self._remember(state, "expression", f'The family taught {state.name} to say "{clean}".', True, now)
+            self.note_topics(state, clean, amount=8)
         else:
             effect = ACTION_EFFECTS[action]
             state.energy = clamp(state.energy + int(effect.get("energy", 0)))
             state.traits.affection = clamp(state.traits.affection + int(effect.get("affection", 0)))
             state.traits.chaos = clamp(state.traits.chaos + int(effect.get("chaos", 0)))
             state.mood = str(effect["mood"])
-            message = self._action_message(state, action)
+            message = f"{action} accepted."
 
         state.total_interactions += 1
         state.action_counts[action] = state.action_counts.get(action, 0) + 1
@@ -141,7 +155,62 @@ class CreatureEngine:
             message += f"\nEVOLUTION! {state.name} became a {state.stage.value.lower()} — {state.archetype.value}."
         elif state.stage in {LifeStage.TEENAGER, LifeStage.ADULT}:
             state.archetype = select_archetype(state)
-        return ActionResult(True, message, state, evolution)
+        after = {
+            "energy": state.energy,
+            "affection": state.traits.affection,
+            "chaos": state.traits.chaos,
+            "curiosity": state.traits.curiosity,
+            "nerdiness": state.traits.nerdiness,
+        }
+        event: dict[str, object] = {
+            "action": action,
+            "success": True,
+            "changes": {key: after[key] - before[key] for key in before},
+            "stage": state.stage.value,
+            "mood": state.mood,
+            "evolved": evolution is not None,
+        }
+        if action == "teach":
+            event["learned_expression"] = state.learned_expressions[-1]
+        if evolution:
+            event["new_archetype"] = state.archetype.value
+        return ActionResult(True, message, state, evolution, event)
+
+    def remember_approved_fact(
+        self, state: CreatureState, fact: str, *, now: datetime | None = None
+    ) -> Memory:
+        clean = sanitize_display_text(" ".join(fact.strip().split()))[:180]
+        if not clean or any(pattern.search(clean) for pattern in BLOCKED_EXPRESSION_PATTERNS):
+            raise ValueError("That memory looks private, unsafe, or empty, so it was not saved.")
+        memory = Memory(
+            kind="approved_memory",
+            text=f"The family deliberately asked {state.name} to remember: {clean}",
+            important=True,
+            created_at=now or datetime.now(timezone.utc),
+        )
+        state.memories.append(memory)
+        state.memories[:] = state.memories[-30:]
+        self.note_topics(state, clean, amount=12)
+        return memory
+
+    def note_topics(self, state: CreatureState, text: str, *, amount: int = 3) -> list[str]:
+        lowered = text.casefold()
+        topic_words = {
+            "programming": ("code", "coding", "python", "java", "regex", "regular expression", "compiler", "algorithm", "computer"),
+            "video games": ("game", "gaming", "minecraft", "valorant", "fortnite"),
+            "music": ("music", "song", "album", "concert", "guitar"),
+            "food": ("food", "pizza", "burger", "taco", "snack"),
+            "philosophy": ("philosophy", "existential", "meaning of life", "consciousness"),
+            "college life": ("class", "exam", "professor", "campus", "assignment", "internship"),
+            "memes": ("meme", "brainrot", "rizz", "sigma"),
+            "sports": ("football", "basketball", "soccer", "baseball", "sports"),
+        }
+        changed: list[str] = []
+        for topic, words in topic_words.items():
+            if any(word in lowered for word in words):
+                state.topic_affinities[topic] = clamp(state.topic_affinities.get(topic, 0) + amount)
+                changed.append(topic)
+        return changed
 
     def record_group_decision(
         self, state: CreatureState, prompt: str, winning_choice: str, voter_count: int, *, now: datetime | None = None
@@ -178,15 +247,6 @@ class CreatureEngine:
         if state.stage == LifeStage.TEENAGER:
             return f"{state.total_interactions}/{thresholds.adult} to adult."
         return "Final form reached. The consequences are permanent-ish."
-
-    @staticmethod
-    def _action_message(state: CreatureState, action: str) -> str:
-        messages = {
-            "feed": f"{state.name} ate the snack, the wrapper, and one metaphor. Energy: {state.energy}.",
-            "play": f"{state.name} invented competitive hallway drifting. Chaos: {state.traits.chaos}.",
-            "care": f"{state.name} accepted the care and pretended not to get emotional. Affection: {state.traits.affection}.",
-        }
-        return messages[action]
 
     @staticmethod
     def _remember(

@@ -28,6 +28,24 @@ class NurseryService:
             self.repository.save_creature(guild_id, channel_id, state)
             return result
 
+    def hatch_and_enable(
+        self,
+        guild_id: int,
+        channel_id: int,
+        user_key: str,
+        name: str = "Chubbie",
+        *,
+        ambient: bool = False,
+    ) -> ActionResult:
+        with self._lock:
+            existing = self.repository.get_creature(guild_id, channel_id)
+            if existing:
+                return ActionResult(False, "This channel already has a Chubbie nursery.", existing)
+            self.repository.set_channel_enabled(guild_id, channel_id, True)
+            if ambient:
+                self.repository.set_channel_ambient(guild_id, channel_id, True)
+            return self.hatch(guild_id, channel_id, user_key, name)
+
     def interact(
         self,
         guild_id: int,
