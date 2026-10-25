@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=78"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "chubbie-project"
+version = "0.1.0"
+description = "A persistent fictional group-chat creature for the Cubbie Hackathon"
+requires-python = ">=3.11"
+dependencies = [
+  "discord.py==2.7.1",
+  "openai==3.37.0",
+  "pydantic==2.14.1",
+  "python-dotenv==1.2.4",
+]
+
+[project.optional-dependencies]
+test = ["pytest==9.1.1"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.setuptools.packages.find]
+include = ["chubbie*", "discord_bot*", "whatsapp*"]
+

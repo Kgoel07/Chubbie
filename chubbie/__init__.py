@@ -1,0 +1,2 @@
+"""CHUBBIE Agent Skill package."""
+

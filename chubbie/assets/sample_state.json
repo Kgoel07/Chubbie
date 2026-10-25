@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "name": "Byte",
+  "stage": "TODDLER",
+  "archetype": "PROCRASTISAURUS REX",
+  "mood": "Zoomy",
+  "energy": 72,
+  "traits": {
+    "affection": 68,
+    "chaos": 55,
+    "curiosity": 70,
+    "nerdiness": 84
+  },
+  "created_at": "2026-10-25T16:00:00Z",
+  "hatched_at": "2026-10-25T16:01:00Z",
+  "last_interaction_at": "2026-10-25T16:30:00Z",
+  "total_interactions": 10,
+  "participant_count": 1,
+  "action_counts": {"feed": 2, "play": 3, "care": 2, "teach": 3},
+  "learned_expressions": ["ship it", "one more bug"],
+  "memories": [
+    {
+      "kind": "hatching",
+      "text": "Byte hatched and immediately demanded snacks.",
+      "created_at": "2026-10-25T16:01:00Z",
+      "important": true
+    }
+  ],
+  "evolution_history": [
+    {
+      "from_stage": "BABY",
+      "to_stage": "TODDLER",
+      "archetype": "PROCRASTISAURUS REX",
+      "reason": "8 valid interactions from 1 participant shaped this form.",
+      "evolved_at": "2026-10-25T16:25:00Z"
+    }
+  ],
+  "personality_notes": []
+}
+
